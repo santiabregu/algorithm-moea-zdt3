@@ -1,0 +1,21 @@
+# Virtual environment
+.venv/
+
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+
+# Jupyter
+.ipynb_checkpoints/
+
+# VS Code settings
+.vscode/
+
+# Environment files
+env/
+venv/
+.env
+
+# Results and data
+results/
+data/*.csv.venv/
