@@ -116,7 +116,7 @@ def mutate(x, pm=0.1, sigma=0.1):
 
 # -------------------------------------- moead ----------------------------------------------------------------------
 
-def ejecutar_moead(N=100, T=10, generaciones=200, n_vars=30):
+def ejecutar_moead(N=40, T=10, generaciones=100, n_vars=30):
     poblacion, fitness = inicializar_poblacion(N, n_vars)
     z_ref = calcular_z_estrella(fitness)
     lambdas = generar_pesos(N)
