@@ -171,3 +171,12 @@ la falta de un operador de diversidad explícito,
 la complejidad del frente discontinuo de ZDT3.
 
 Aunque la tendencia general es positiva (menor Spacing → mejor uniformidad), la fluctuación persistente indica que la uniformidad no es totalmente estable y depende fuertemente de las variaciones locales de los subproblemas.
+
+# Razones porque podria no ser uniforme :
+La no-uniformidad de tu algoritmo se debe principalmente a:
+
+(1) Pesos lineales insuficientes para un frente discontinuo → el problema principal.
+(2) Vecindarios demasiado pequeños → surgen clusters.
+(3) Operadores evolutivos demasiado conservadores → poca exploración.
+(4) Reemplazo local del MOEA/D básico → sin diversidad global.
+(5) Población pequeña → no alcanza todas las zonas del frente. 
