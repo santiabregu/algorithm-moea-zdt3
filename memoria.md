@@ -143,3 +143,31 @@ Pendiente para versión 2:
 - Métricas Hypervolume, Spacing, Coverage
 - Comparación NSGA-II vs MOEA/D
 - Ajuste de parámetros
+
+** V1 Descripción técnica del gráfico de Hypervolume **
+
+La figura muestra la evolución del hypervolume (HV) obtenido por el MOEA/D durante 100 generaciones.
+
+Aunque la tendencia general es ascendente —lo cual indica que el algoritmo mejora progresivamente su aproximación al frente de Pareto— la curva presenta varios tramos donde el HV permanece prácticamente constante e incluso pequeños retrocesos locales alrededor de las generaciones 35–45 y 55–60.
+
+Estas irregularidades sugieren que el algoritmo experimenta dificultades temporales para mejorar determinadas regiones del frente, lo que es coherente con la naturaleza discontinua del frente ZDT3 y la sensibilidad del MOEA/D a la elección de vecindarios y pesos.
+
+A partir de la generación 70, el incremento en HV se vuelve muy lento, lo que indica que el algoritmo ha alcanzado una zona de cuasi-estancamiento: todavía mejora, pero de forma marginal. Este comportamiento es habitual en implementaciones básicas de MOEA/D debido a la falta de mecanismos explícitos de diversidad global.
+
+En conjunto, el gráfico confirma que la convergencia es razonablemente buena, pero el proceso no es uniforme ni completamente estable, evidenciando margen de mejora en la exploración del espacio de soluciones.
+
+** V1 Descripción técnica del gráfico de Spacing **
+
+La figura registra la evolución del Spacing, métrica que evalúa la uniformidad en la distribución de las soluciones sobre el frente.
+
+En las primeras ~30 generaciones el valor del Spacing muestra picos muy pronunciados (incluyendo valores alrededor de 0.4), lo que refleja una fuerte irregularidad en la dispersión de las soluciones. Esto indica que, en esta fase inicial, el algoritmo genera clusters y zonas vacías en el frente, un comportamiento no deseado pero frecuente antes de que el proceso evolutivo se estabilice.
+
+Tras esa fase inicial, el Spacing disminuye y se mantiene en valores más bajos, aunque sigue presentando oscilaciones notables en lugar de estabilizarse por completo. Esto evidencia que el algoritmo no logra producir una distribución perfectamente uniforme, probablemente debido a:
+
+la estructura fija de vecindarios del MOEA/D,
+
+la falta de un operador de diversidad explícito,
+
+la complejidad del frente discontinuo de ZDT3.
+
+Aunque la tendencia general es positiva (menor Spacing → mejor uniformidad), la fluctuación persistente indica que la uniformidad no es totalmente estable y depende fuertemente de las variaciones locales de los subproblemas.
