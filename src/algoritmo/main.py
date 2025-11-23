@@ -30,13 +30,6 @@ def inicializar_poblacion(N=100, n_vars=30):
     return poblacion, fitness
 
 
-def inicializar_poblacion(N=100, n_vars=30):
-    """(Duplicada) Igual que la otra `inicializar_poblacion`: crear población y calcular fitness."""
-    poblacion = [random_individual(n_vars) for _ in range(N)]
-    fitness = [zdt3(ind) for ind in poblacion]
-    return poblacion, fitness
-
-
 def calcular_z_estrella(fitness):
     """Calcula el punto de referencia z* como los mínimos de f1 y f2 en la población.
 
@@ -88,9 +81,7 @@ def vecindades(lambdas, T):
 
 
 def tchebycheff(f, lamb, z_ref):
-    """Calcula el valor Tchebycheff ponderado para el vector objetivo `f`.
-
-    Usa pesos `lamb` y referencia `z_ref` (z*).
+    """Calcula el valor Tchebycheff ponderado para el vector objetivo `f`
     """
     return max([
         lamb[j] * abs(f[j] - z_ref[j])
@@ -99,61 +90,112 @@ def tchebycheff(f, lamb, z_ref):
 
 # ------------------------------------- operadores evolutivos ---------------------------------------------------------
 
-def crossover(p1, p2, pc=0.9):
+
+def sbx_crossover(p1, p2, eta=20, pc=0.9):
     if random.random() > pc:
-        return p1[:]  # sin cruce
+        return p1[:]
 
-    alpha = random.random()  # mezcla aleatoria
-    hijo = [alpha*p1[i] + (1-alpha)*p2[i] for i in range(len(p1))]
-    return hijo
+    child = []
+    for x1, x2 in zip(p1, p2):
+        if random.random() <= 0.5:
+            if abs(x1 - x2) > 1e-14:
+                x_min = min(x1, x2)
+                x_max = max(x1, x2)
 
-def mutate(x, pm=0.1, sigma=0.1):
-    for i in range(len(x)):
+                rand = random.random()
+                beta = 1.0 + (2.0 * (x_min - 0.0) / (x_max - x_min))
+                alpha = 2.0 - beta ** -(eta + 1)
+
+                if rand <= 1.0 / alpha:
+                    betaq = (rand * alpha) ** (1.0 / (eta + 1))
+                else:
+                    betaq = (1.0 / (2.0 - rand * alpha)) ** (1.0 / (eta + 1))
+
+                c = 0.5 * ((x1 + x2) - betaq * (x_max - x_min))
+            else:
+                c = x1
+        else:
+            c = x1
+
+        # limitar a [0,1]
+        c = max(0.0, min(1.0, c))
+        child.append(c)
+
+    return child
+
+
+def polynomial_mutation(x, eta=20, pm=1/30):
+    child = x[:]  # evitar tocar lista original
+    for i in range(len(child)):
         if random.random() < pm:
-            x[i] += random.gauss(0, sigma)
-            x[i] = min(1.0, max(0.0, x[i]))  # asegurar rango [0,1]
-    return x
+            u = random.random()
+            if u < 0.5:
+                delta = (2*u)**(1/(eta+1)) - 1
+            else:
+                delta = 1 - (2*(1-u))**(1/(eta+1))
+            child[i] += delta * (1.0 - 0.0)  # rango = 1
+            child[i] = max(0.0, min(1.0, child[i]))
+    return child
 
 # -------------------------------------- moead ----------------------------------------------------------------------
 
+
 def ejecutar_moead(N=40, T=10, generaciones=100, n_vars=30):
+
     poblacion, fitness = inicializar_poblacion(N, n_vars)
     z_ref = calcular_z_estrella(fitness)
     lambdas = generar_pesos(N)
     vecinos = vecindades(lambdas, T)
 
-    historial = []  # <-- NUEVO
+    historial = []
 
     for gen in range(generaciones):
+
+        # *** COPIAR población antes de actualizarla ***
+        poblacion_original = [ind[:] for ind in poblacion]
+        fitness_original = fitness[:]
+
         for i in range(N):
 
             Bi = vecinos[i]
+
             p1 = random.choice(Bi)
             p2 = random.choice(Bi)
+            while p2 == p1:
+                p2 = random.choice(Bi)
 
-            padre1 = poblacion[p1]
-            padre2 = poblacion[p2]
+            # *** padres de la población ORIGINAL ***
+            padre1 = poblacion_original[p1][:]
+            padre2 = poblacion_original[p2][:]
 
-            hijo = crossover(padre1, padre2)
-            hijo = mutate(hijo)
+
+            # variación
+            hijo = sbx_crossover(padre1, padre2)
+            hijo = polynomial_mutation(hijo)
+            hijo = hijo[:]  # por seguridad
 
             f_hijo = zdt3(hijo)
 
-            z_ref = (min(z_ref[0], f_hijo[0]),
-                     min(z_ref[1], f_hijo[1]))
+            # actualizar z*
+            if f_hijo[0] < z_ref[0]:
+                z_ref = (f_hijo[0], z_ref[1])
+            if f_hijo[1] < z_ref[1]:
+                z_ref = (z_ref[0], f_hijo[1])
 
+            # reemplazo local
             for m in Bi:
-                if tchebycheff(f_hijo, lambdas[m], z_ref) <= tchebycheff(fitness[m], lambdas[m], z_ref):
-                    poblacion[m] = hijo
+                g_hijo = tchebycheff(f_hijo, lambdas[m], z_ref)
+                g_padre = tchebycheff(fitness_original[m], lambdas[m], z_ref)
+
+                if g_hijo <= g_padre:
+                    poblacion[m] = hijo[:]      # *** COPIA IMPORTANTE ***
                     fitness[m] = f_hijo
 
-        # GUARDAR FITNESS EN EL HISTORIAL
         historial.append(list(fitness))
 
-        if gen % 10 == 0:
-            print(f"Generación {gen} completada.")
-
     return poblacion, fitness, z_ref, historial
+
+
 
 # --------------------------------------- generar archivos de resultados ------------------------------------------------
 
@@ -178,12 +220,13 @@ def guardar_all_popm(historial, ruta="all_popm.out"):
     with open(ruta, "w") as f:
         for pop_fitness in historial:
             for f1, f2 in pop_fitness:
-                f.write(f"{f1:.6f}\t{f2:.6f}\n")
+                f.write(f"{f1:.6e}\t{f2:.6e}\t0.000000e+00\n")
+
 
 
 if __name__ == "__main__":
-    print("\n=== Ejecutando MOEA/D pequeño de prueba ===")
-    pop, fit, z, historial = ejecutar_moead(N=100, T=10, generaciones=200)
+    print("\n=== Ejecutando MOEA/D  ===")
+    pop, fit, z, historial = ejecutar_moead(N=40, T=10, generaciones=100)
 
     guardar_final_pop(fit)
     guardar_all_pop(historial)
