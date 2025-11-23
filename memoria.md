@@ -180,3 +180,131 @@ La no-uniformidad de tu algoritmo se debe principalmente a:
 (3) Operadores evolutivos demasiado conservadores → poca exploración.
 (4) Reemplazo local del MOEA/D básico → sin diversidad global.
 (5) Población pequeña → no alcanza todas las zonas del frente. 
+
+# Razones por las que mi MOEA/D no distribuye uniformemente los puntos
+
+La distribución no uniforme de los puntos en el frente obtenido por mi implementación de MOEA/D se explica por varios factores relacionados con la configuración del algoritmo y con la naturaleza del problema ZDT3.
+
+## 1. Pesos lineales poco adecuados para un frente discontinuo
+
+El algoritmo genera pesos equiespaciados del tipo:
+
+λᵢ = ( i/(N−1), 1 − i/(N−1) )
+
+Este esquema funciona bien en frentes convexos y continuos, pero ZDT3 tiene 5 segmentos separados.  
+Por eso, algunas regiones quedan sin representación y el algoritmo no explora los huecos del frente.
+
+## 2. Vecindarios demasiado cerrados (T = 10)
+
+Los vecindarios se definen como los T pesos más cercanos.  
+Con N = 40 y T = 10, cada subproblema solo se mezcla con un grupo pequeño.
+
+Esto causa:
+
+- aparición de clusters de soluciones,
+- áreas sin cubrir,
+- falta de diversidad global.
+
+## 3. Baja variación genética
+
+- SBX usa η = 20, generando hijos muy similares a los padres,
+- Mutación polinómica tiene una probabilidad reducida pm = 1/30.
+
+Consecuencia directa:
+
+La exploración del espacio de búsqueda es limitada y las soluciones tienden a concentrarse.
+
+## 4. Reemplazo únicamente local
+
+MOEA/D reemplaza soluciones solo dentro del vecindario:
+
+si g_hijo ≤ g_padre ⇒ hijo reemplaza padre
+
+Este mecanismo fomenta convergencia, pero no protege la diversidad global del frente.  
+De ahí que el hypervolume mejore pero el spacing permanezca irregular.
+
+## 5. Tamaño poblacional insuficiente para ZDT3
+
+El frente ZDT3 requiere muchos puntos para cubrir bien sus múltiples segmentos.  
+Con solo N = 40:
+
+No hay suficientes subproblemas para formar una muestra uniforme del frente completo.
+
+## Conclusión
+
+Mi MOEA/D converge correctamente hacia el frente (lo confirma el hipervolumen), pero no logra una distribución uniforme debido a:
+
+- pesos lineales en un frente discontinuo,
+- vecindarios demasiado estrechos,
+- operadores poco exploratorios,
+- reemplazo local sin mecanismos globales de diversidad,
+- población pequeña.
+
+
+------------------------------------------------------------------------------------------------------------------------------
+
+# *Version de codigo 2*
+
+Cambiar el vecindario a T=15 no arregla el problema.
+De hecho, lo empeora:
+
+Convergencia más lenta,
+
+Diversidad casi inexistente,
+
+## Cambio 1
+
+En la versión previa del algoritmo (v1), el punto de referencia 
+𝑧
+∗
+z
+∗
+ —que representa los mínimos conocidos de cada objetivo— se actualizaba dentro del bucle de reemplazo local, es decir, cada vez que un hijo era evaluado. Esta estrategia introduce un problema:
+a medida que se recorren los vecinos, el valor de 
+𝑧
+∗
+z
+∗
+ cambia durante la misma generación, lo que provoca criterios de comparación inconsistentes entre diferentes soluciones de la misma iteración. El resultado es un comportamiento inestable, pérdida de diversidad y oscilaciones en métricas como spacing e hypervolume.
+
+En la versión actual (v2), 
+𝑧
+∗
+z
+∗
+ se actualiza únicamente una vez por generación, después de evaluar a los nuevos hijos, manteniendo un criterio homogéneo durante toda la iteración. Con esto se consigue un proceso de selección más estable y una evolución más suave del frente de Pareto.
+
+imagenes despues de cambio z* 
+
+El algoritmo ha mejorado notablemente respecto a la versión anterior: el spacing muestra una distribución mucho más estable y uniforme, similar a la del profesor, lo que indica que la diversidad local ahora se gestiona correctamente. Sin embargo, el hypervolume aún crece de forma menos suave y alcanza valores claramente inferiores, señal de que el algoritmo no está cubriendo adecuadamente toda la extensión del frente de Pareto, especialmente en las zonas extremas. En conjunto, la distribución ya es razonable, pero la convergencia global sigue siendo insuficiente, y el algoritmo aún no consigue aproximarse al mismo nivel de calidad que el de referencia:
+
+Reference point for hypervolume calculation
+ref[1]=0.9715823000
+ref[2]=4.1410760000 -> Los valores del hipervolumen y su referencia dicen cosas importantes sobre el algoritmo.
+En mi caso indican que:
+
+Mi algoritmo no explora suficientemente las zonas extremas del frente, especialmente valores grandes de f2.
+Por eso el punto de referencia automático es más pequeño.
+Y por ello mi hypervolume alcanza valores más modestos.
+El algoritmo del profesor cubre un rango mucho más amplio, lo que indica una mejor exploración del espacio de búsqueda.
+Tambien: Tu gráfico final está mal porque la última generación ha perdido la diversidad completamente, de modo que aunque tienes una población de 40, solo aparecen 4 soluciones únicas. Esto no es normal en MOEA/D y confirma que todavía quedan problemas en los operadores evolutivos y/o en la política de reemplazo.
+Otro problema importante: En la última generación de mi MOEA/D se observa un fenómeno indeseado: solo aparecen unos pocos puntos en el frente final, mientras que en el algoritmo del profesor la población final mantiene los 40 individuos bien distribuidos en todo el frente de Pareto. Esto indica que el algoritmo no está conservando diversidad al final del proceso, y que durante las últimas iteraciones muchos individuos están colapsando hacia unas pocas zonas del frente.
+
+Este comportamiento suele deberse a una o varias de las siguientes causas:
+
+Actualización de vecinos demasiado agresiva
+Al reemplazar muchos vecinos por el mismo hijo, toda la población puede converger hacia solo unas pocas soluciones, destruyendo la diversidad.
+
+Operadores de variación poco exploratorios
+Una mutación demasiado baja o un crossover demasiado conservador puede hacer que las soluciones se vuelvan casi idénticas.
+
+Referencia z* que se actualiza demasiado, empujando todas las soluciones hacia un único extremo del frente.
+
+Número de vecinos T demasiado grande
+Cuanto mayor es T, más individuos se reemplazan por el mismo hijo ⇒ más rápido colapsa la diversidad.
+
+Falta de elitismo real
+El algoritmo no garantiza que los mejores puntos diversos se mantengan; algunos subproblemas dejan de tener representantes válidos.
+
+En resumen:
+Mi algoritmo converge, pero pierde diversidad, mientras que el del profesor mantiene una representación uniforme del frente. Solucionar esto implica actuar sobre la presión de reemplazo, la mutación y la vecindad.
