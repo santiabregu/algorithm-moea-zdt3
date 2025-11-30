@@ -356,3 +356,97 @@ z
 Los resultados reflejan claramente el efecto positivo de estos dos ajustes.
 El hipervolumen muestra una curva mucho más progresiva y estable, alcanzando valores significativamente superiores a los obtenidos en versiones anteriores. Del mismo modo, el spacing presenta oscilaciones más suaves y valores promedio más bajos, lo que indica una mejor distribución de los puntos en el frente Pareto. Finalmente, la generación final ya no colapsa: en lugar de producir solo unas pocas soluciones, ahora devuelve un conjunto amplio de puntos a lo largo de varios segmentos del frente ZDT3, manteniendo diversidad y estructura.
 
+
+-------------------------------------------------------------------------------------------------------
+
+# *Version 4*
+
+Ahora se generan 10 ficheros para N = 40 y generaciones = 100, con diferentes semillas aleatorias (seed01-seed09, seed099) para obtener resultados estadísticamente significativos.
+
+## Metodología de cálculo de métricas
+
+Todas las métricas se calculan usando el software `./metrics` proporcionado por el profesor. El flujo es:
+
+```
+./metrics (software del profesor)
+    ↓
+hypervol.out, spacing.out, cs.out, extent.out, etc.
+    ↓
+Script Python (solo automatiza y promedia resultados de ./metrics)
+    ↓
+moead_hv_avg.out, nsga2_hv_avg.out
+    ↓
+Gnuplot (visualización)
+```
+
+El script `METRICS/utils/hypervolume_avg_metrics.py`:
+1. Lee TODOS los archivos de ambos algoritmos
+2. Calcula el punto de referencia común (peor f1 y f2 de todos)
+3. Ejecuta `./metrics` para cada archivo con ese punto de referencia
+4. Promedia los resultados por generación
+
+**Importante:** El script Python NO implementa su propio cálculo de hipervolumen. Solo automatiza la ejecución de `./metrics` y promedia los resultados.
+
+## Comparación con NSGA-II del profesor
+
+Para una comparación justa, se calculó un **punto de referencia común** usando el peor f1 y f2 de TODOS los archivos (tanto MOEA/D como NSGA-II):
+
+```
+Punto de referencia común:
+ref_x = 1.0095808500
+ref_y = 6.2944785700
+```
+
+### Resultados de Hipervolumen (promedio de 10 semillas)
+
+| Generación | MOEA/D | NSGA-II | Ganador |
+|------------|--------|---------|---------|
+| Gen 1      | 3.462  | 2.931   | MOEA/D  |
+| Gen 100    | 6.261  | 6.234   | MOEA/D  |
+
+**Diferencia final: +0.027 a favor de MOEA/D**
+
+### Comparación detallada para una semilla (seed01)
+
+| Métrica | MOEA/D | NSGA-II | Interpretación |
+|---------|--------|---------|----------------|
+| **Hypervolume (Gen 100)** | 6.385 | 6.257 | MOEA/D +2.0% mejor |
+| **Spacing (Gen 100)** | 0.0431 | 0.0114 | NSGA-II mejor distribución |
+| **Extent (f1)** | 0.752 | 0.798 | NSGA-II cubre más rango |
+| **CS (cobertura)** | 0.00 | 0.875 | Mixto |
+
+### Observaciones del frente de Pareto
+
+Al visualizar la animación comparativa de ambos algoritmos, se observa que:
+
+1. **MOEA/D (puntos azules)** no genera soluciones después de f1 ≈ 0.8
+2. **NSGA-II (puntos rojos)** sí alcanza valores de f1 hasta ≈ 0.85
+
+El frente de Pareto de ZDT3 tiene **5 segmentos discontinuos**. El último segmento está aproximadamente en f1 ∈ [0.82, 1.0]. Mi algoritmo MOEA/D no está encontrando bien ese último segmento.
+
+### Análisis de la limitación
+
+Esta limitación se debe a los **pesos lineales equiespaciados**:
+
+```
+λᵢ = (i/(N−1), 1 − i/(N−1))
+```
+
+Este esquema no cubre adecuadamente los 5 segmentos discontinuos de ZDT3, especialmente el último segmento donde f1 > 0.8.
+
+### Conclusión V4
+
+| ✅ Mejoras logradas | ⚠️ Limitación pendiente |
+|---------------------|------------------------|
+| Hypervolume superior a NSGA-II | Falta explorar f1 > 0.8 |
+| Spacing más estable | Último segmento ZDT3 vacío |
+| 40 puntos en frente final | Extent menor que NSGA-II |
+| Ejecución con 10 semillas | |
+
+**Mi MOEA/D converge mejor en las regiones que cubre, pero NSGA-II explora mejor los extremos del frente.**
+
+El algoritmo es competitivo con NSGA-II en términos de hipervolumen global, pero para mejorar la cobertura del último segmento sería necesario:
+- Usar una distribución de pesos adaptada a frentes discontinuos
+- Aumentar el tamaño de la población
+- Implementar mecanismos de exploración adicionales
+

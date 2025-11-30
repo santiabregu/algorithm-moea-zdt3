@@ -212,6 +212,7 @@ def guardar_final_pop(fitness, ruta="v3_final_pop.out"):
         for f1, f2 in fitness:
             f.write(f"{f1:.6f}\t{f2:.6f}\n")
 
+
 def guardar_all_pop(historial, ruta="v3_all_pop.out"):
     """
     historial: lista de listas de fitness por generación.
@@ -224,6 +225,7 @@ def guardar_all_pop(historial, ruta="v3_all_pop.out"):
                 f.write(f"{f1:.6f}\t{f2:.6f}\n")
             f.write("\n")
 
+
 def guardar_all_popm(historial, ruta="v3_all_popm.out"):
     with open(ruta, "w") as f:
         for pop_fitness in historial:
@@ -231,16 +233,31 @@ def guardar_all_popm(historial, ruta="v3_all_popm.out"):
                 f.write(f"{f1:.6e}\t{f2:.6e}\t0.000000e+00\n")
 
 
-
 if __name__ == "__main__":
-    print("\n=== Ejecutando MOEA/D  ===")
-    pop, fit, z, historial = ejecutar_moead(N=40, T=10, generaciones=100)
-
-    guardar_final_pop(fit)
-    guardar_all_pop(historial)
-    guardar_all_popm(historial)
-
-    print("Archivos generados:")
-    print(" - final_pop.out")
-    print(" - all_pop.out")
-    print(" - all_popm.out")
+    # Semillas para múltiples ejecuciones (igual que el profesor)
+    seeds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 99]
+    
+    N = 40
+    generaciones = 100
+    
+    print(f"\n=== Ejecutando MOEA/D con {len(seeds)} semillas ===")
+    print(f"    Población: {N}, Generaciones: {generaciones}\n")
+    
+    for seed in seeds:
+        random.seed(seed)  # Fijar semilla para reproducibilidad
+        
+        seed_str = f"{seed:02d}" if seed < 10 else f"0{seed}"
+        print(f"  Semilla {seed_str}...", end=" ", flush=True)
+        
+        pop, fit, z, historial = ejecutar_moead(N=N, T=10, generaciones=generaciones)
+        
+        # Guardar con nombres compatibles con el formato del profesor
+        guardar_final_pop(fit, f"zdt3_final_popp{N}g{generaciones}_seed{seed_str}.out")
+        guardar_all_popm(historial, f"zdt3_all_popmp{N}g{generaciones}_seed{seed_str}.out")
+        
+        print("✓")
+    
+    print(f"\n=== Completado: {len(seeds)} ejecuciones ===")
+    print("Archivos generados por cada semilla:")
+    print("  - zdt3_final_popp40g100_seedXX.out")
+    print("  - zdt3_all_popmp40g100_seedXX.out")
