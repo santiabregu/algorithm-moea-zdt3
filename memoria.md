@@ -308,3 +308,51 @@ El algoritmo no garantiza que los mejores puntos diversos se mantengan; algunos 
 
 En resumen:
 Mi algoritmo converge, pero pierde diversidad, mientras que el del profesor mantiene una representación uniforme del frente. Solucionar esto implica actuar sobre la presión de reemplazo, la mutación y la vecindad.
+
+-------------------------------------------------------------------------------------------------------
+
+# *Version 3*
+
+Cambios principales a implementar en la Versión 3
+1. Reducir el tamaño de vecindario (T)
+
+Cambio: bajar T de 15 a valores recomendados (8).
+
+Razón: con T demasiado grande, un solo hijo reemplaza demasiados subproblemas, provocando pérdida severa de diversidad y que la población colapse en pocas zonas del frente (pocos puntos en la última generación).
+
+2. Ajustar el reemplazo para que no sea tan agresivo
+
+Cambio: limitar cuántos vecinos puede reemplazar un hijo, o aumentar los criterios para sustituir.
+
+Razón: el reemplazo actual permite que un hijo sustituya hasta el 40% de la población, lo cual destruye rápidamente la diversidad y produce un frente final incompleto.
+
+3. Revisar la generación de pesos (lambdas)
+
+Cambio: usar una distribución de pesos mejor adaptada a funciones no convexas (como ZDT3), o aumentar el número de pesos.
+
+Razón: los pesos lineales uniformes no cubren bien las zonas disjuntas y curvas del frente de ZDT3, causando huecos y mala exploración.
+
+1) 
+En esta versión se introdujeron dos ajustes clave en la dinámica interna de MOEA/D.
+Primero, se modificó el parámetro de vecindad T, fijándolo en 8, lo que corresponde al 20 % de los vectores de peso. Este cambio reduce el tamaño de cada vecindario, haciendo que cada subproblema interactúe con un grupo más pequeño y coherente de vecinos. La motivación es que un T más grande puede provocar que las actualizaciones se propaguen demasiado rápido por toda la población, reduciendo diversidad y haciendo que distintos subproblemas terminen explorando regiones similares del espacio objetivo. Con T=8 se buscó equilibrar convergencia y diversidad, limitando la presión de reemplazo entre regiones del frente.
+
+En segundo lugar, se modificó el criterio de reemplazo, retrasando la actualización del punto de referencia 
+𝑧
+\*
+z
+\*
+ hasta el final de cada generación. En versiones anteriores, 
+𝑧
+\*
+z
+\*
+ se actualizaba inmediatamente tras evaluar cada hijo, lo que hacía el reemplazo excesivamente agresivo: los subproblemas tendían a reemplazar a los individuos actuales con hijos generados en la misma zona, provocando la pérdida de diversidad y, en las últimas generaciones, la desaparición de una parte importante del frente final. Al actualizar 
+𝑧
+\*
+z
+\*
+ solo una vez por generación, el reemplazo se vuelve más estable y menos reactivo, evitando cambios bruscos durante la generación.
+
+Los resultados reflejan claramente el efecto positivo de estos dos ajustes.
+El hipervolumen muestra una curva mucho más progresiva y estable, alcanzando valores significativamente superiores a los obtenidos en versiones anteriores. Del mismo modo, el spacing presenta oscilaciones más suaves y valores promedio más bajos, lo que indica una mejor distribución de los puntos en el frente Pareto. Finalmente, la generación final ya no colapsa: en lugar de producir solo unas pocas soluciones, ahora devuelve un conjunto amplio de puntos a lo largo de varios segmentos del frente ZDT3, manteniendo diversidad y estructura.
+

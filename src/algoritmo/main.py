@@ -140,7 +140,7 @@ def polynomial_mutation(x, eta=20, pm=1/30):
 # -------------------------------------- moead ----------------------------------------------------------------------
 
 
-def ejecutar_moead(N=40, T=15, generaciones=100, n_vars=30):
+def ejecutar_moead(N=40, T=8, generaciones=100, n_vars=30):
 
     poblacion, fitness = inicializar_poblacion(N, n_vars)
     z_ref = calcular_z_estrella(fitness)
@@ -155,8 +155,8 @@ def ejecutar_moead(N=40, T=15, generaciones=100, n_vars=30):
         poblacion_original = [ind[:] for ind in poblacion]
         fitness_original = fitness[:]
 
-        nuevos_fitness = []   # <<< CAMBIO >>> almacenará fitness de todos los hijos generados
-        
+        nuevos_fitness = []   # hijos generados
+
         for i in range(N):
 
             Bi = vecinos[i]
@@ -166,29 +166,34 @@ def ejecutar_moead(N=40, T=15, generaciones=100, n_vars=30):
             while p2 == p1:
                 p2 = random.choice(Bi)
 
-            # Padres de la población original
+            # Padres originales
             padre1 = poblacion_original[p1][:]
             padre2 = poblacion_original[p2][:]
 
-            # Variación
+            # variación
             hijo = sbx_crossover(padre1, padre2)
             hijo = polynomial_mutation(hijo)
 
             f_hijo = zdt3(hijo)
+            nuevos_fitness.append(f_hijo)
 
-            nuevos_fitness.append(f_hijo)   # <<< CAMBIO >>>
+            # === REEMPLAZO LIMITADO ===
+            reemplazos = 0
+            max_reemplazos = 2   # <<< parámetro clave >>>
 
-            # Reemplazo local (sin actualizar z_ref aún)
             for m in Bi:
+                if reemplazos >= max_reemplazos:
+                    break
+
                 g_hijo = tchebycheff(f_hijo, lambdas[m], z_ref)
                 g_padre = tchebycheff(fitness_original[m], lambdas[m], z_ref)
 
                 if g_hijo <= g_padre:
                     poblacion[m] = hijo[:]
                     fitness[m] = f_hijo
+                    reemplazos += 1
 
         # === Actualizar z* al final de la generación ===
-        # <<< CAMBIO IMPORTANTE >>>
         for f_hijo in nuevos_fitness:
             z_ref = (
                 min(z_ref[0], f_hijo[0]),
@@ -200,15 +205,14 @@ def ejecutar_moead(N=40, T=15, generaciones=100, n_vars=30):
     return poblacion, fitness, z_ref, historial
 
 
-
 # --------------------------------------- generar archivos de resultados ------------------------------------------------
 
-def guardar_final_pop(fitness, ruta="v2_final_pop.out"):
+def guardar_final_pop(fitness, ruta="v3_final_pop.out"):
     with open(ruta, "w") as f:
         for f1, f2 in fitness:
             f.write(f"{f1:.6f}\t{f2:.6f}\n")
 
-def guardar_all_pop(historial, ruta="v2_all_pop.out"):
+def guardar_all_pop(historial, ruta="v3_all_pop.out"):
     """
     historial: lista de listas de fitness por generación.
                Ej: historial[gen][i] = (f1, f2)
@@ -220,7 +224,7 @@ def guardar_all_pop(historial, ruta="v2_all_pop.out"):
                 f.write(f"{f1:.6f}\t{f2:.6f}\n")
             f.write("\n")
 
-def guardar_all_popm(historial, ruta="v2_all_popm.out"):
+def guardar_all_popm(historial, ruta="v3_all_popm.out"):
     with open(ruta, "w") as f:
         for pop_fitness in historial:
             for f1, f2 in pop_fitness:
