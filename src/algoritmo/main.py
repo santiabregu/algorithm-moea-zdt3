@@ -1,5 +1,7 @@
 import random
 import math
+import shutil
+import os
 
 
 def random_individual(n_vars=30):
@@ -40,14 +42,18 @@ def calcular_z_estrella(fitness):
     return (min(f1_vals), min(f2_vals))
 
 
-def generar_pesos(N):
+def generar_pesos(N, perturbacion=0.0):
     """Genera `N` pares de pesos (lambda1, lambda2) equiespaciados para descomposición.
 
     Cada par suma 1 y recorre el segmento [0,1].
+    Si perturbacion > 0, añade ruido aleatorio para explorar mejor frentes discontinuos.
     """
     lambdas = []
     for i in range(N):
         w1 = i / (N - 1)
+        if perturbacion > 0:
+            # Pequeña perturbación aleatoria para explorar mejor frentes discontinuos (ZDT3)
+            w1 = max(0.0, min(1.0, w1 + random.uniform(-perturbacion, perturbacion)))
         w2 = 1 - w1
         lambdas.append((w1, w2))
     return lambdas
@@ -124,7 +130,11 @@ def sbx_crossover(p1, p2, eta=20, pc=0.9):
     return child
 
 
-def polynomial_mutation(x, eta=20, pm=1/30):
+def polynomial_mutation(x, eta=20, pm=1/20):
+    """Mutación polinómica con probabilidad balanceada.
+    
+    V6.5: pm = 1/20 (óptimo encontrado).
+    """
     child = x[:]  # evitar tocar lista original
     for i in range(len(child)):
         if random.random() < pm:
@@ -137,14 +147,59 @@ def polynomial_mutation(x, eta=20, pm=1/30):
             child[i] = max(0.0, min(1.0, child[i]))
     return child
 
+
+def differential_evolution(p1, p2, p3, F=0.5, CR=0.5):
+    """
+    Operador de Differential Evolution (DE) para variación.
+    
+    V6: Añadido como operador alternativo a SBX para mejorar convergencia.
+    
+    Args:
+        p1, p2, p3: Tres padres (individuos)
+        F: Factor de escala (default 0.5)
+        CR: Probabilidad de crossover (default 0.5)
+    
+    Returns:
+        Hijo generado por DE
+    """
+    n = len(p1)
+    child = p1[:]  # Empezar con p1
+    
+    # Mutación: v = p1 + F * (p2 - p3)
+    v = []
+    for i in range(n):
+        v.append(p1[i] + F * (p2[i] - p3[i]))
+        v[i] = max(0.0, min(1.0, v[i]))  # Limitar a [0,1]
+    
+    # Crossover binomial
+    j_rand = random.randint(0, n-1)  # Asegurar al menos un gen de v
+    for i in range(n):
+        if random.random() < CR or i == j_rand:
+            child[i] = v[i]
+        # else: child[i] = p1[i] (ya está)
+    
+    return child
+
 # -------------------------------------- moead ----------------------------------------------------------------------
 
 
-def ejecutar_moead(N=40, T=8, generaciones=100, n_vars=30):
-
+def ejecutar_moead(N=40, T=None, generaciones=100, n_vars=30, perturbacion_pesos=0.02, 
+                   pm=1/20, de_prob=0.2, max_reemplazos=2, T_percent=0.225):
+    """MOEA/D con parámetros optimizados para ZDT3.
+    
+    Parámetros configurables:
+    - pm: probabilidad de mutación (default 1/20)
+    - de_prob: probabilidad de usar DE (default 0.2 = 20%)
+    - max_reemplazos: máximo de reemplazos en vecindario (default 2)
+    - T_percent: porcentaje de N para calcular T (default 0.225 = 22.5%)
+    """
+    # Calcular T automáticamente si no se proporciona
+    if T is None:
+        T = max(2, round(N * T_percent))  # Mínimo 2 vecinos
+    
     poblacion, fitness = inicializar_poblacion(N, n_vars)
     z_ref = calcular_z_estrella(fitness)
-    lambdas = generar_pesos(N)
+    lambdas = generar_pesos(N, perturbacion=perturbacion_pesos)
     vecinos = vecindades(lambdas, T)
 
     historial = []
@@ -170,16 +225,27 @@ def ejecutar_moead(N=40, T=8, generaciones=100, n_vars=30):
             padre1 = poblacion_original[p1][:]
             padre2 = poblacion_original[p2][:]
 
-            # variación
-            hijo = sbx_crossover(padre1, padre2)
-            hijo = polynomial_mutation(hijo)
+            # Variación con SBX o DE (probabilidad configurable)
+            if random.random() < de_prob:
+                # Differential Evolution: necesitamos 3 padres
+                p3 = random.choice(Bi)
+                while p3 == p1 or p3 == p2:
+                    p3 = random.choice(Bi)
+                padre3 = poblacion_original[p3][:]
+                # F=0.5, CR=0.5 (valores estándar)
+                hijo = differential_evolution(padre1, padre2, padre3, F=0.5, CR=0.5)
+            else:
+                # SBX crossover (80% del tiempo)
+                hijo = sbx_crossover(padre1, padre2)
+            
+            # Mutación siempre aplicada (probabilidad configurable)
+            hijo = polynomial_mutation(hijo, pm=pm)
 
             f_hijo = zdt3(hijo)
             nuevos_fitness.append(f_hijo)
 
             # === REEMPLAZO LIMITADO ===
             reemplazos = 0
-            max_reemplazos = 2   # <<< parámetro clave >>>
 
             for m in Bi:
                 if reemplazos >= max_reemplazos:
@@ -249,7 +315,18 @@ if __name__ == "__main__":
         seed_str = f"{seed:02d}" if seed < 10 else f"0{seed}"
         print(f"  Semilla {seed_str}...", end=" ", flush=True)
         
-        pop, fit, z, historial = ejecutar_moead(N=N, T=10, generaciones=generaciones)
+        # V7.3: Balance moderado (mejor CS2: 67.5%)
+        # Parámetros: pm=1/18, de_prob=0.25, perturbacion_pesos=0.025, T_percent=0.25, max_reemplazos=2
+        # Nota: Intentos V7.4-V7.9 mostraron trade-off fuerte entre CS2, HV y Spacing
+        pop, fit, z, historial = ejecutar_moead(
+            N=N, 
+            generaciones=generaciones, 
+            perturbacion_pesos=0.025,
+            pm=1/18,
+            de_prob=0.25,
+            max_reemplazos=2,
+            T_percent=0.25
+        )
         
         # Guardar con nombres compatibles con el formato del profesor
         guardar_final_pop(fit, f"zdt3_final_popp{N}g{generaciones}_seed{seed_str}.out")
@@ -261,3 +338,12 @@ if __name__ == "__main__":
     print("Archivos generados por cada semilla:")
     print("  - zdt3_final_popp40g100_seedXX.out")
     print("  - zdt3_all_popmp40g100_seedXX.out")
+    
+    # Copiar seed01 a METRICS para comparación con ./metrics
+    metrics_dir = "../../METRICS"
+    seed01_file = f"zdt3_all_popmp{N}g{generaciones}_seed01.out"
+    dest_file = os.path.join(metrics_dir, "zdt3_seed1_personal_N40G100.out")
+    
+    if os.path.exists(seed01_file) and os.path.exists(metrics_dir):
+        shutil.copy2(seed01_file, dest_file)
+        print(f"\n✓ Seed01 copiado a METRICS/zdt3_seed1_personal_N40G100.out")

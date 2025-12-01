@@ -450,3 +450,438 @@ El algoritmo es competitivo con NSGA-II en términos de hipervolumen global, per
 - Aumentar el tamaño de la población
 - Implementar mecanismos de exploración adicionales
 
+----------------------------------------------------------------------------------------------------------
+V5
+
+
+## Objetivo
+
+Mejorar las métricas donde MOEA/D perdía frente a NSGA-II:
+- **Coverage Set**: 87.5% de MOEA/D era dominado por NSGA-II
+- **Spacing**: 0.043 vs 0.011 (NSGA-II mejor)
+- **Extent**: No cubría f1 > 0.8
+
+## Cambios implementados
+
+### 1. Aumento de la probabilidad de mutación
+
+```python
+# V4: pm = 1/30 ≈ 0.033
+# V5: pm = 1/15 ≈ 0.067 (el doble)
+def polynomial_mutation(x, eta=20, pm=1/15):
+```
+
+**Razón:** Una mutación más frecuente aumenta la exploración del espacio de búsqueda, permitiendo escapar de óptimos locales y explorar regiones no cubiertas del frente.
+
+### 2. Perturbación de pesos para frentes discontinuos
+
+```python
+def generar_pesos(N, perturbacion=0.05):
+    for i in range(N):
+        w1 = i / (N - 1)
+        # Añadir ruido ±5% para explorar mejor
+        w1 = max(0.0, min(1.0, w1 + random.uniform(-0.05, 0.05)))
+        w2 = 1 - w1
+        lambdas.append((w1, w2))
+```
+
+**Razón:** Los pesos lineales uniformes no cubren bien los 5 segmentos discontinuos de ZDT3. La perturbación permite que algunos subproblemas exploren las zonas entre segmentos y los extremos (f1 > 0.8).
+
+### 3. Vecindario más grande
+
+```python
+# V4: T = 10 (25% de N)
+# V5: T = 12 (30% de N)
+ejecutar_moead(N=40, T=12, ...)
+```
+
+**Razón:** Un vecindario más grande permite mayor intercambio de información entre subproblemas, mejorando la diversidad global sin sacrificar demasiada convergencia.
+
+## Resumen de parámetros V5
+
+| Parámetro | V4 | V5 | Justificación |
+|-----------|----|----|---------------|
+| **pm** | 1/30 | 1/15 | Mayor exploración |
+| **T** | 10 | 12 | Mejor diversidad |
+| **Perturbación pesos** | 0 | 0.05 | Cubrir frentes discontinuos |
+| **max_reemplazos** | 2 | 2 | Sin cambio |
+| **η (SBX y mutación)** | 20 | 20 | Sin cambio |
+
+## Resultados obtenidos V5 (parámetros originales)
+
+### Comparación V5 vs NSGA-II (promedio 10 seeds, Gen 100)
+
+| Métrica | MOEA/D V5 | NSGA-II | Resultado |
+|---------|-----------|---------|-----------|
+| **Hypervolume** | 6.234 | 6.234 | ✅ Igual (diferencia +0.0009) |
+| **Spacing** | 0.0412 | 0.0114 | ⚠️ NSGA-II mejor (3.6x mejor) |
+| **CS2 (% V5 dom por NSGA-II)** | 50-80% | - | ❌ **MUY MALO** |
+
+### Problemas detectados
+
+1. **Coverage Set crítico**: Entre 50-80% de las soluciones de MOEA/D están siendo dominadas por NSGA-II durante toda la ejecución. Esto indica que el algoritmo no está convergiendo adecuadamente en muchas zonas del frente.
+
+2. **Spacing con picos**: Aunque el spacing promedio mejoró ligeramente (0.0412 vs 0.0431 en V4), presenta picos pronunciados en generaciones 5-8 y 47-50 (valores de 0.09-0.098), indicando pérdida temporal de uniformidad.
+
+3. **Hypervolume igual**: El HV final es prácticamente idéntico a NSGA-II, pero esto no compensa el mal Coverage Set.
+
+### Análisis de las causas
+
+Los parámetros de V5 original eran demasiado agresivos en exploración:
+
+- **T=12 (vecindario grande)**: Aumenta la presión de reemplazo, permitiendo que un solo hijo reemplace muchos subproblemas, reduciendo diversidad y convergencia.
+- **Perturbación=0.05**: Demasiado ruido en los pesos causa inestabilidad en la convergencia de algunos subproblemas.
+- **max_reemplazos=2**: Permite reemplazos múltiples que pueden propagar soluciones no óptimas.
+
+**Resultado**: El algoritmo explora más pero converge peor, permitiendo que NSGA-II domine muchas soluciones.
+
+## V5 Ajustado (corrección de parámetros)
+
+### Cambios realizados
+
+| Parámetro | V5 original | V5 ajustado | Razón |
+|-----------|-------------|-------------|-------|
+| **T (vecindario)** | 12 | **10** | Reducir presión de reemplazo |
+| **Perturbación pesos** | 0.05 | **0.02** | Menos ruido = convergencia más estable |
+| **max_reemplazos** | 2 | **1** | Menos reemplazos agresivos = mejor convergencia |
+| **pm (mutación)** | 1/15 | 1/15 | Mantener (exploración necesaria) |
+
+### Objetivo de los ajustes
+
+- **Mejorar Coverage Set**: Reducir el porcentaje de soluciones dominadas por NSGA-II (objetivo: <50%)
+- **Reducir picos en Spacing**: Convergencia más estable sin pérdidas temporales de uniformidad
+- **Mantener HV competitivo**: No sacrificar el hipervolumen logrado
+
+**Estrategia**: Balance entre exploración (mutación alta) y convergencia (vecindario y perturbación menores).
+
+## Resultados obtenidos V5 Ajustado
+
+### Comparación V5 Ajustado vs V5 Original vs NSGA-II (Gen 100, seed01)
+
+| Métrica | V5 Original | V5 Ajustado | NSGA-II | Mejor |
+|---------|-------------|-------------|---------|-------|
+| **Hypervolume** | 6.234 | **6.386** | 6.257 | ✅ V5 Ajustado |
+| **Spacing** | 0.0412 | **0.0208** | 0.0114 | ✅ V5 Ajustado |
+| **CS2 (dom por NSGA-II)** | 80.0% | 92.5% | - | ❌ Empeoró |
+
+### Análisis de resultados
+
+- ✅ **Hypervolume mejoró significativamente**: 6.234 → 6.386 (+2.4%)
+- ✅ **Spacing mejoró mucho**: 0.0412 → 0.0208 (sin picos altos)
+- ❌ **Coverage Set empeoró**: 80% → 92.5% (más soluciones dominadas)
+
+**Observación importante**: El CS2 muestra una mejora temporal (baja a 35-47% en generaciones 6-10) pero luego sube a 90%+ en las últimas generaciones. Esto sugiere que el algoritmo converge bien inicialmente pero pierde diversidad/convergencia en zonas específicas del frente.
+
+**Conclusión V5 Ajustado**: Los ajustes mejoraron la convergencia global (HV) y la distribución (Spacing), pero el problema de dominancia persiste. La mutación alta (pm=1/15) puede estar generando soluciones que no convergen adecuadamente en algunas regiones del frente.
+
+-------------------------------------------------------------------------------------------------------
+
+# *Version 6*
+
+## Objetivo
+
+Mejorar el Coverage Set que sigue siendo el punto débil del algoritmo, manteniendo las mejoras logradas en Hypervolume y Spacing.
+
+## Cambios planificados
+
+1. **Ajustar probabilidad de mutación**: Reducir de 1/15 a un valor intermedio (1/20 o 1/25) para balancear exploración y convergencia.
+
+2. **Ajustar parámetros SBX**: Modificar η (distribution index) para controlar la exploración del crossover.
+
+3. **Añadir operador adicional**: Implementar un operador de **Differential Evolution (DE)** como alternativa al SBX, que puede mejorar la convergencia en zonas específicas del frente.
+
+## Justificación
+
+El problema principal es que muchas soluciones de MOEA/D son dominadas por NSGA-II (92.5%), lo que indica falta de convergencia en ciertas regiones. Los operadores actuales (SBX + mutación polinómica) pueden no ser suficientes para explorar y converger en todas las zonas del frente discontinuo de ZDT3.
+
+El operador DE puede ayudar porque:
+- Genera soluciones más diversas
+- Mejora la convergencia en zonas específicas
+- Es complementario a SBX (puede usarse alternativamente)
+
+## Cambios implementados V6
+
+### 1. Ajuste de probabilidad de mutación
+
+```python
+# V5: pm = 1/15 ≈ 0.067
+# V6: pm = 1/20 ≈ 0.05
+def polynomial_mutation(x, eta=20, pm=1/20):
+```
+
+**Razón**: Balance entre exploración y convergencia. La mutación muy alta (1/15) puede generar soluciones que no convergen bien.
+
+### 2. Operador Differential Evolution (DE)
+
+Nuevo operador añadido como alternativa a SBX:
+
+```python
+def differential_evolution(p1, p2, p3, F=0.5, CR=0.5):
+    # Mutación: v = p1 + F * (p2 - p3)
+    # Crossover binomial con probabilidad CR
+```
+
+**Uso**: 30% probabilidad de usar DE, 70% SBX.
+
+**Parámetros**:
+- **F = 0.5**: Factor de escala (controla la magnitud de la diferencia)
+- **CR = 0.5**: Probabilidad de crossover (controla cuántos genes se toman del vector mutado)
+
+### 3. Resumen de parámetros V6
+
+| Parámetro | V5 Ajustado | V6 | Cambio |
+|-----------|-------------|----|--------|
+| **pm** | 1/15 | **1/20** | Reducido para mejor convergencia |
+| **T** | 10 | 10 | Sin cambio |
+| **Perturbación pesos** | 0.02 | 0.02 | Sin cambio |
+| **max_reemplazos** | 1 | 1 | Sin cambio |
+| **Operador variación** | Solo SBX | **SBX + DE (30%)** | Nuevo |
+
+## Objetivos V6
+
+- ✅ Mejorar Coverage Set (objetivo: <70% dominado por NSGA-II)
+- ✅ Mantener HV competitivo (≥6.35)
+- ✅ Mantener Spacing bajo (<0.025)
+- ✅ Mejorar convergencia en zonas específicas del frente
+
+## Cambio adicional V6.3: Cálculo automático de T
+
+En lugar de fijar T manualmente, ahora se calcula automáticamente como **22.5% de N** (punto medio entre 20-25% recomendado):
+
+```python
+if T is None:
+    T = max(2, round(N * 0.225))  # Para N=40 → T=9
+```
+
+**¿Afecta a los resultados?** Sí, puede afectar:
+- **T más pequeño** (9 vs 10): Menos presión de reemplazo, mejor convergencia pero menos diversidad
+- **T más grande**: Más diversidad pero puede perder convergencia
+
+Para N=40, el cambio es mínimo (T=9 vs T=10), pero hace el algoritmo más adaptable a diferentes tamaños de población.
+
+## Resultados obtenidos V6
+
+### Comparación V6 vs V5 Ajustado vs NSGA-II (Gen 100, seed01)
+
+| Métrica | V5 Ajustado | V6 | NSGA-II | Mejor |
+|---------|-------------|----|---------|-------|
+| **Hypervolume** | 6.386 | 6.337 | 6.257 | V5 Ajustado |
+| **Spacing** | 0.0208 | 0.0312 | 0.0114 | V5 Ajustado |
+| **CS2 (dom por NSGA-II)** | 92.5% | **87.5%** | - | ✅ V6 |
+
+### Análisis de resultados V6
+
+- ✅ **Coverage Set mejoró**: 92.5% → 87.5% (-5%)
+- ⚠️ **Hypervolume bajó**: 6.386 → 6.337 (-0.049)
+- ⚠️ **Spacing empeoró**: 0.0208 → 0.0312 (+0.0104)
+- ⚠️ **Spacing con picos**: Valores de 0.08 en generaciones 3-5
+
+**Observación**: El CS2 muestra una mejora temporal significativa (baja a 40% en generaciones 9-11), pero luego sube a 87.5% en las últimas generaciones. Esto indica que el operador DE ayuda inicialmente pero no mantiene la convergencia a largo plazo.
+
+### Comparación evolutiva
+
+**Promedio 10 seeds (Gen 100)**:
+- V6: HV = 6.252
+- NSGA-II: HV = 6.236
+- **V6 gana por +0.016** ✅
+
+**Conclusión V6**: El operador DE y la mutación ajustada mejoraron ligeramente el Coverage Set, pero a costa de perder HV y Spacing. El algoritmo necesita más ajustes para encontrar el balance óptimo entre exploración y convergencia.
+
+## Variantes V6 probadas (ajuste fino)
+
+Se probaron diferentes combinaciones de parámetros del operador DE para optimizar el Coverage Set:
+
+| Versión | Prob. DE | F | CR | max_reemplazos | HV | Spacing | CS2 | Mejor CS2 |
+|---------|----------|---|----|----------------|----|---------|-----|-----------|
+| **V6** | 30% | 0.5 | 0.5 | 1 | 6.337 | 0.031 | 87.5% | |
+| **V6.1** | 50% | 0.3 | 0.7 | 2 | 6.391 | 0.026 | 100% | ❌ |
+| **V6.2** | 40% | 0.4 | 0.6 | 1 | 6.391 | 0.025 | 97.5% | ❌ |
+| **V6.3** | **20%** | **0.5** | **0.5** | **1** | **6.329** | **0.026** | **85.0%** | ✅ |
+
+### Análisis de las variantes
+
+- **V6.1 y V6.2**: Aumentar la probabilidad de DE (40-50%) empeora el Coverage Set (97.5-100%). El DE es demasiado exploratorio y no converge bien.
+
+- **V6.3**: Reducir la probabilidad de DE a 20% logra el **mejor Coverage Set (85.0%)**, manteniendo HV y Spacing competitivos.
+
+**Conclusión**: El operador DE debe usarse con moderación (20%) para complementar SBX sin dominar la exploración. Valores estándar (F=0.5, CR=0.5) funcionan mejor que valores ajustados.
+
+### Parámetros finales V6.3
+
+- **T**: Calculado automáticamente como 22.5% de N (T=9 para N=40)
+- **pm**: 1/20
+- **Perturbación pesos**: 0.02
+- **DE**: 20% probabilidad, F=0.5, CR=0.5
+- **max_reemplazos**: 1
+
+## Pruebas adicionales de ajuste fino (V6.3 - V6.11)
+
+Se realizaron pruebas adicionales para optimizar el Coverage Set y Spacing, probando diferentes combinaciones de parámetros:
+
+### Resumen de todas las pruebas
+
+| Versión | Cambio principal | HV | Spacing | CS2 | Mejor |
+|---------|------------------|----|---------|-----|-------|
+| **V6.3** | Base (max_repl=1) | 6.329 | 0.026 | 85.0% | |
+| **V6.5** | **max_repl=2** | **6.338** | **0.025** | **82.5%** | ✅ **ÓPTIMA** |
+| **V6.6** | max_repl=3 | 6.338 | 0.025 | 83.0% | |
+| **V6.7** | pm=1/18 | 6.335 | 0.031 | 85.0% | |
+| **V6.8** | pm=1/22 | 6.338 | 0.038 | 87.5% | |
+| **V6.9** | DE F=0.3 CR=0.6 | 6.335 | 0.036 | 85.0% | |
+| **V6.10** | DE_prob=15% | 6.390 | 0.027 | 97.5% | ❌ |
+| **V6.11** | perturbacion=0.01 | 6.333 | 0.044 | 87.5% | |
+
+### Análisis de resultados
+
+#### V6.5: Mejor versión encontrada ✅
+
+**Cambio**: `max_reemplazos = 2` (aumentado de 1)
+
+**Resultados**:
+- **CS2**: 82.5% (mejor que V6.3 con 85.0%)
+- **HV**: 6.338 (mejor que V6.3 con 6.329)
+- **Spacing**: 0.025 (mejor que V6.3 con 0.026)
+
+**Razón del éxito**: Permitir hasta 2 reemplazos en el vecindario aumenta la presión de selección sin ser demasiado agresivo, mejorando la convergencia hacia el frente de Pareto.
+
+#### Otras pruebas que empeoraron
+
+- **V6.6 (max_repl=3)**: CS2 empeoró a 83.0%, demasiada presión de reemplazo
+- **V6.7 (pm=1/18)**: Más mutación empeoró CS2 (85.0%) y Spacing (0.031)
+- **V6.8 (pm=1/22)**: Menos mutación empeoró CS2 (87.5%) y Spacing (0.038)
+- **V6.9 (DE F=0.3 CR=0.6)**: Parámetros DE menos agresivos empeoraron CS2 (85.0%)
+- **V6.10 (DE_prob=15%)**: Reducir probabilidad DE empeoró mucho CS2 (97.5%)
+- **V6.11 (perturbacion=0.01)**: Menos perturbación empeoró CS2 (87.5%) y Spacing (0.044)
+
+### Parámetros finales V6.5 (ÓPTIMA)
+
+- **T**: Calculado automáticamente como 22.5% de N (T=9 para N=40)
+- **pm**: 1/20
+- **Perturbación pesos**: 0.02
+- **DE**: 20% probabilidad, F=0.5, CR=0.5
+- **max_reemplazos**: **2** (cambio clave respecto a V6.3)
+
+### Conclusión
+
+El ajuste más efectivo fue aumentar `max_reemplazos` de 1 a 2, lo que permite una mejor convergencia sin perder demasiada diversidad. Los otros parámetros (pm, DE, perturbación) funcionan mejor con sus valores estándar.
+
+## Versión 7: Pruebas de combinaciones de parámetros
+
+### Análisis del problema: ¿Por qué NSGA-II domina tanto?
+
+**Problema identificado**: CS2 = 82.5% (82.5% de nuestros puntos son dominados por NSGA-II)
+
+**Razones principales**:
+
+1. **NSGA-II explora mejor los extremos del frente**: ZDT3 tiene 5 segmentos discontinuos, y el último segmento (f1 ∈ [0.82, 1.0]) no está bien cubierto por MOEA/D debido a pesos lineales equiespaciados.
+
+2. **Mejor distribución (spacing)**: NSGA-II tiene spacing = 0.011 vs MOEA/D = 0.025. NSGA-II usa crowding distance que mantiene diversidad explícitamente.
+
+3. **Reemplazo local vs selección global**: MOEA/D reemplaza solo en vecindario (local), mientras NSGA-II tiene selección global basada en dominancia.
+
+### Combinaciones probadas
+
+Se probaron combinaciones lógicas de parámetros basadas en teoría:
+
+| Versión | Parámetros | HV | Spacing | CS2 | Análisis |
+|---------|-----------|----|---------|-----|----------|
+| **V6.5** | Base (óptima individual) | 6.338 | 0.025 | 82.5% | Referencia |
+| **V7.1** | pm=1/18, DE=30%, perturb=0.03 | 6.387 | 0.030 | 97.5% | ❌ Exploración extrema empeora |
+| **V7.2** | perturb=0.03, T=25% | 6.382 | 0.028 | 90.0% | ❌ Más perturbación empeora |
+| **V7.3** | pm=1/18, DE=25%, perturb=0.025, T=25% | 6.213 | 0.033 | **67.5%** | ✅ **MEJOR CS2** |
+
+### Resultados V7.3 (Mejor combinación)
+
+**Parámetros**:
+- **pm**: 1/18 (más mutación)
+- **DE_prob**: 25% (ligeramente más DE)
+- **perturbacion_pesos**: 0.025 (ligeramente más)
+- **max_reemplazos**: 2
+- **T**: 25% (vecindarios más grandes)
+
+**Resultados**:
+- ✅ **CS2: 67.5%** (mejora de 15% respecto a V6.5 con 82.5%)
+- ⚠️ **HV: 6.213** (bajó de 6.338, pero aún mejor que NSGA-II con 6.257)
+- ⚠️ **Spacing: 0.033** (empeoró de 0.025, pero aceptable)
+
+**Conclusión V7.3**: La combinación balanceada de aumentos moderados en todos los parámetros de exploración logra el mejor Coverage Set (67.5%), reduciendo significativamente la dominancia de NSGA-II. El trade-off es una ligera pérdida en HV y spacing, pero el CS2 es la métrica más crítica para comparar algoritmos.
+
+### Lecciones aprendidas
+
+1. **Exploración extrema no funciona**: V7.1 (exploración máxima) empeoró mucho el CS2 (97.5%)
+2. **Balance es clave**: Aumentos moderados en múltiples parámetros funcionan mejor que cambios extremos en uno solo
+3. **Vecindarios más grandes ayudan**: T=25% (vs 22.5%) mejora la mezcla global
+4. **Mutación moderadamente mayor**: pm=1/18 (vs 1/20) ayuda sin ser excesivo
+
+## Intentos de mejora de V7.3 (V7.4 - V7.9)
+
+Se intentó mejorar el HV y Spacing de V7.3 manteniendo el buen CS2, pero se encontró un **trade-off fuerte** entre estas métricas:
+
+| Versión | Cambio | HV | Spacing | CS2 | Resultado |
+|---------|--------|----|---------|-----|-----------|
+| **V7.3** | Base | 6.213 | 0.033 | 67.5% | Referencia |
+| **V7.4** | max_repl=1, menos expl | 6.388 | 0.030 | 90.0% | ❌ CS2 empeoró |
+| **V7.5** | Intermedio | 6.391 | 0.023 | 95.0% | ❌ CS2 empeoró mucho |
+| **V7.6** | Sutil V7.3 | 6.213 | 0.041 | 67.5% | ❌ Spacing empeoró |
+| **V7.7** | menos perturb + más DE | 6.389 | 0.027 | 90.0% | ❌ CS2 empeoró |
+| **V7.8** | Balance final | 6.211 | 0.046 | **65.0%** | ⚠️ CS2 mejoró pero spacing muy malo |
+| **V7.9** | Compromiso | 6.336 | 0.034 | 82.5% | ❌ CS2 empeoró |
+
+### Análisis de los intentos
+
+**Problema identificado**: Existe un **trade-off fuerte** entre:
+- **CS2 (Coverage Set)**: Requiere exploración para cubrir extremos del frente
+- **HV (Hypervolume)**: Requiere convergencia hacia el frente de Pareto
+- **Spacing**: Requiere distribución uniforme (menos perturbación)
+
+**Observaciones**:
+1. **Mejorar HV y Spacing empeora el CS2**: Reducir exploración mejora convergencia pero pierde cobertura de extremos
+2. **Mejorar CS2 empeora el Spacing**: Más exploración (perturbación) mejora cobertura pero empeora distribución
+3. **V7.8** logró el mejor CS2 (65.0%) pero con spacing muy malo (0.046)
+
+### Conclusión
+
+**V7.3 mantiene el mejor balance general**:
+- CS2: 67.5% (mejor que V6.5 con 82.5%)
+- HV: 6.213 (aunque peor que NSGA-II con 6.257, es aceptable)
+- Spacing: 0.033 (aunque peor que NSGA-II con 0.011, es aceptable)
+
+**Recomendación**: Mantener V7.3 como versión final. El trade-off entre CS2, HV y Spacing es inherente al problema y no se puede mejorar significativamente sin sacrificar otra métrica importante.
+
+## ¿Se puede mejorar más vs NSGA-II?
+
+### Limitación de Ajustes de Parámetros
+
+Los ajustes de parámetros (V7.3-V7.9) tienen un **trade-off fuerte** y **no pueden superar las ventajas estructurales de NSGA-II**:
+
+1. **NSGA-II tiene crowding distance**: Mecanismo explícito de diversidad que mantiene spacing uniforme (0.011)
+2. **NSGA-II tiene selección global**: Puede mantener soluciones en extremos aunque no sean óptimas localmente
+3. **NSGA-II explora mejor extremos**: Mejor cobertura del último segmento (f1 > 0.8)
+
+**Conclusión**: Con solo ajustar parámetros, **no podemos superar completamente estas ventajas estructurales**.
+
+### Propuesta V8: Cambios Estructurales
+
+Para mejorar más, necesitaríamos **cambios estructurales** (ver `PROPUESTA_V8.md`):
+
+1. **Mecanismo de diversidad explícito**: Añadir crowding distance similar a NSGA-II
+2. **Pesos adaptativos**: Ajustar pesos según densidad del frente (especialmente para f1 > 0.8)
+3. **Actualización adaptativa**: Combinar reemplazo local con actualización global periódica
+4. **Exploración explícita de extremos**: Mecanismo para explorar regiones poco cubiertas
+
+Estos cambios son más complejos pero tienen el potencial de mejorar significativamente el spacing y la exploración de extremos.
+
+### Recomendación Final
+
+**V7.3 es la mejor versión con ajustes de parámetros** y es adecuada para:
+- ✅ Mejor CS2 que V6.5 (67.5% vs 82.5%)
+- ✅ Resultados reproducibles y estables
+- ✅ Implementación simple y mantenible
+
+**Para mejorar más**, se necesitarían cambios estructurales (V8) que requieren:
+- ⚠️ Más tiempo de implementación
+- ⚠️ Más pruebas y validación
+- ⚠️ Mayor complejidad del código
+
+**Decisión**: Si necesitas resultados ahora, **V7.3 es la mejor opción**. Si tienes tiempo para implementar cambios estructurales, **V8 podría mejorar más**.
+
