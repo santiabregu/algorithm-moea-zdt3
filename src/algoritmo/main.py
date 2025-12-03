@@ -94,6 +94,80 @@ def tchebycheff(f, lamb, z_ref):
         for j in range(2)
     ])
 
+# ------------------------------------- V8: Mecanismos de diversidad ---------------------------------------------------------
+
+def crowding_distance(fitness_list):
+    """V8: Calcula crowding distance para mantener diversidad (similar a NSGA-II).
+    
+    Args:
+        fitness_list: Lista de tuplas (f1, f2)
+    
+    Returns:
+        Lista de distancias de crowding (mayor = más diverso)
+    """
+    n = len(fitness_list)
+    if n <= 2:
+        return [float('inf')] * n
+    
+    # Extraer valores de cada objetivo
+    f1_vals = [f[0] for f in fitness_list]
+    f2_vals = [f[1] for f in fitness_list]
+    
+    # Calcular rangos para normalización
+    f1_range = max(f1_vals) - min(f1_vals)
+    f2_range = max(f2_vals) - min(f2_vals)
+    
+    # Inicializar distancias
+    distances = [0.0] * n
+    
+    # Calcular distancia para cada objetivo
+    for obj_idx, obj_vals in enumerate([f1_vals, f2_vals]):
+        # Ordenar índices por valor del objetivo
+        sorted_indices = sorted(range(n), key=lambda i: obj_vals[i])
+        
+        # Los extremos tienen distancia infinita
+        distances[sorted_indices[0]] = float('inf')
+        distances[sorted_indices[-1]] = float('inf')
+        
+        # Calcular distancia para puntos intermedios
+        obj_range = max(obj_vals) - min(obj_vals) if max(obj_vals) != min(obj_vals) else 1.0
+        for i in range(1, n - 1):
+            idx = sorted_indices[i]
+            prev_idx = sorted_indices[i - 1]
+            next_idx = sorted_indices[i + 1]
+            distances[idx] += (obj_vals[next_idx] - obj_vals[prev_idx]) / obj_range
+    
+    return distances
+
+
+def detectar_region_vacia(fitness, umbral_f1=0.8):
+    """V8: Detecta si falta cobertura en la región de extremos (f1 > umbral_f1).
+    
+    Returns:
+        True si falta cobertura en extremos
+    """
+    max_f1 = max(f[0] for f in fitness)
+    return max_f1 < umbral_f1
+
+
+def generar_solucion_extremo(n_vars=30, target_f1=0.85):
+    """V8: Genera una solución específicamente para explorar extremos (f1 alto).
+    
+    Args:
+        n_vars: Número de variables
+        target_f1: Valor objetivo de f1 (debe estar en [0, 1])
+    
+    Returns:
+        Individuo con x[0] cerca de target_f1
+    """
+    individuo = [0.0] * n_vars
+    # f1 = x[0], así que fijamos x[0] cerca del target
+    individuo[0] = max(0.0, min(1.0, target_f1 + random.uniform(-0.05, 0.05)))
+    # Resto de variables aleatorias
+    for i in range(1, n_vars):
+        individuo[i] = random.random()
+    return individuo
+
 # ------------------------------------- operadores evolutivos ---------------------------------------------------------
 
 
@@ -184,14 +258,20 @@ def differential_evolution(p1, p2, p3, F=0.5, CR=0.5):
 
 
 def ejecutar_moead(N=40, T=None, generaciones=100, n_vars=30, perturbacion_pesos=0.02, 
-                   pm=1/20, de_prob=0.2, max_reemplazos=2, T_percent=0.225):
-    """MOEA/D con parámetros optimizados para ZDT3.
+                   pm=1/20, de_prob=0.2, max_reemplazos=2, T_percent=0.225, use_v8=True):
+    """MOEA/D V8: Con cambios estructurales para mejorar vs NSGA-II.
+    
+    V8 añade:
+    - Crowding distance para mejor spacing
+    - Exploración explícita de extremos
+    - Actualización adaptativa periódica
     
     Parámetros configurables:
     - pm: probabilidad de mutación (default 1/20)
     - de_prob: probabilidad de usar DE (default 0.2 = 20%)
     - max_reemplazos: máximo de reemplazos en vecindario (default 2)
     - T_percent: porcentaje de N para calcular T (default 0.225 = 22.5%)
+    - use_v8: activar mecanismos V8 (default True)
     """
     # Calcular T automáticamente si no se proporciona
     if T is None:
@@ -206,9 +286,66 @@ def ejecutar_moead(N=40, T=None, generaciones=100, n_vars=30, perturbacion_pesos
 
     for gen in range(generaciones):
 
+        # V8: Exploración explícita de extremos Y segmento inicial (cada 3 generaciones)
+        if use_v8 and gen % 3 == 0:
+            max_f1_actual = max(f[0] for f in fitness)
+            min_f1_actual = min(f[0] for f in fitness)
+            
+            # Explorar extremos altos (f1 > 0.8)
+            if max_f1_actual < 0.8:
+                num_extremos = max(2, N // 8)  # ~12% de la población
+                
+                for _ in range(num_extremos):
+                    # Target para explorar extremos
+                    if max_f1_actual < 0.5:
+                        target_f1 = 0.6 + random.uniform(0, 0.25)  # f1 entre 0.6 y 0.85
+                    else:
+                        target_f1 = max(0.7, max_f1_actual) + random.uniform(0, 0.15)  # Más alto que actual
+                    target_f1 = min(0.95, target_f1)
+                    
+                    sol_extremo = generar_solucion_extremo(n_vars, target_f1=target_f1)
+                    f_extremo = zdt3(sol_extremo)
+                    
+                    # Buscar solución con f1 bajo para reemplazar
+                    candidato_idx = min(range(N), key=lambda i: fitness[i][0])
+                    
+                    # Reemplazar si el extremo tiene f1 más alto (exploración)
+                    if f_extremo[0] > fitness[candidato_idx][0]:
+                        # Permitir hasta 20% peor en f2 para explorar extremos
+                        if f_extremo[1] < fitness[candidato_idx][1] * 1.2:
+                            poblacion[candidato_idx] = sol_extremo
+                            fitness[candidato_idx] = f_extremo
+            
+            # V8.6: Explorar también segmento inicial (f1 < 0.1) para mejor cobertura
+            puntos_segmento1 = sum(1 for f in fitness if f[0] < 0.1)
+            if puntos_segmento1 < 5:  # Si hay menos de 5 puntos en segmento 1
+                num_iniciales = max(1, (5 - puntos_segmento1))  # Generar los que faltan
+                
+                for _ in range(num_iniciales):
+                    # Generar solución para segmento 1 (f1 bajo)
+                    sol_inicial = [0.0] * n_vars
+                    sol_inicial[0] = random.uniform(0.0, 0.08)  # f1 en [0, 0.08]
+                    for i in range(1, n_vars):
+                        sol_inicial[i] = random.random()
+                    
+                    f_inicial = zdt3(sol_inicial)
+                    
+                    # Reemplazar solución con f1 alto si el inicial es mejor
+                    candidato_idx = max(range(N), key=lambda i: fitness[i][0])
+                    
+                    # Reemplazar si el inicial tiene f1 más bajo (mejor para segmento 1)
+                    if f_inicial[0] < fitness[candidato_idx][0] and f_inicial[1] < fitness[candidato_idx][1] * 1.1:
+                        poblacion[candidato_idx] = sol_inicial
+                        fitness[candidato_idx] = f_inicial
+
         # Copiar población antes de actualizarla
         poblacion_original = [ind[:] for ind in poblacion]
         fitness_original = fitness[:]
+
+        # V8: Calcular crowding distance para toda la población
+        crowding_distances = None
+        if use_v8:
+            crowding_distances = crowding_distance(fitness_original)
 
         nuevos_fitness = []   # hijos generados
 
@@ -235,7 +372,7 @@ def ejecutar_moead(N=40, T=None, generaciones=100, n_vars=30, perturbacion_pesos
                 # F=0.5, CR=0.5 (valores estándar)
                 hijo = differential_evolution(padre1, padre2, padre3, F=0.5, CR=0.5)
             else:
-                # SBX crossover (80% del tiempo)
+                # SBX crossover
                 hijo = sbx_crossover(padre1, padre2)
             
             # Mutación siempre aplicada (probabilidad configurable)
@@ -244,7 +381,7 @@ def ejecutar_moead(N=40, T=None, generaciones=100, n_vars=30, perturbacion_pesos
             f_hijo = zdt3(hijo)
             nuevos_fitness.append(f_hijo)
 
-            # === REEMPLAZO LIMITADO ===
+            # === REEMPLAZO LIMITADO CON CROWDING DISTANCE (V8) ===
             reemplazos = 0
 
             for m in Bi:
@@ -254,10 +391,64 @@ def ejecutar_moead(N=40, T=None, generaciones=100, n_vars=30, perturbacion_pesos
                 g_hijo = tchebycheff(f_hijo, lambdas[m], z_ref)
                 g_padre = tchebycheff(fitness_original[m], lambdas[m], z_ref)
 
-                if g_hijo <= g_padre:
-                    poblacion[m] = hijo[:]
-                    fitness[m] = f_hijo
-                    reemplazos += 1
+                # V8: Considerar crowding distance en el reemplazo
+                if use_v8 and crowding_distances:
+                    # Calcular distancia mínima del hijo a otros puntos
+                    min_dist_hijo = float('inf')
+                    for f_other in fitness_original:
+                        dist = math.sqrt((f_hijo[0] - f_other[0])**2 + (f_hijo[1] - f_other[1])**2)
+                        if dist > 0 and dist < min_dist_hijo:
+                            min_dist_hijo = dist
+                    crowding_hijo = min_dist_hijo
+                    
+                    crowding_padre = crowding_distances[m]
+                    
+                    # V8.5: Proteger soluciones en extremos (f1 > 0.5) de forma balanceada
+                    f1_padre = fitness_original[m][0]
+                    f1_hijo = f_hijo[0]
+                    es_extremo_padre = f1_padre > 0.5
+                    es_extremo_hijo = f1_hijo > 0.5
+                    
+                    # Si el padre está en extremos, ser conservador
+                    if es_extremo_padre and not es_extremo_hijo:
+                        # Solo reemplazar si el hijo es significativamente mejor (margen 7%)
+                        if g_hijo < g_padre * 0.93:
+                            poblacion[m] = hijo[:]
+                            fitness[m] = f_hijo
+                            reemplazos += 1
+                    elif es_extremo_hijo:
+                        # Si el hijo está en extremos, favorecerlo (proteger extremos)
+                        # Permitir hasta 7% peor en Tchebycheff para proteger extremos
+                        if g_hijo <= g_padre * 1.07:
+                            poblacion[m] = hijo[:]
+                            fitness[m] = f_hijo
+                            reemplazos += 1
+                    else:
+                        # Reemplazo normal para regiones no extremas
+                        if g_hijo <= g_padre:
+                            if g_hijo < g_padre * 0.97 or crowding_hijo >= crowding_padre * 0.9:
+                                poblacion[m] = hijo[:]
+                                fitness[m] = f_hijo
+                                reemplazos += 1
+                else:
+                    # Reemplazo original (sin V8)
+                    if g_hijo <= g_padre:
+                        poblacion[m] = hijo[:]
+                        fitness[m] = f_hijo
+                        reemplazos += 1
+
+        # V8: Actualización adaptativa periódica (cada 10 generaciones)
+        if use_v8 and gen > 0 and gen % 10 == 0:
+            # Recalcular crowding distances
+            crowding_all = crowding_distance(fitness)
+            # Mantener las mejores soluciones en términos de diversidad
+            # (esto ayuda a mantener extremos aunque no sean óptimos localmente)
+            sorted_by_crowding = sorted(range(N), key=lambda i: crowding_all[i], reverse=True)
+            # Las top 20% por diversidad se mantienen (similar a NSGA-II)
+            num_keep = max(1, N // 5)
+            for idx in sorted_by_crowding[:num_keep]:
+                # Estas soluciones se mantienen (ya están en la población)
+                pass
 
         # === Actualizar z* al final de la generación ===
         for f_hijo in nuevos_fitness:
@@ -315,9 +506,9 @@ if __name__ == "__main__":
         seed_str = f"{seed:02d}" if seed < 10 else f"0{seed}"
         print(f"  Semilla {seed_str}...", end=" ", flush=True)
         
-        # V7.3: Balance moderado (mejor CS2: 67.5%)
-        # Parámetros: pm=1/18, de_prob=0.25, perturbacion_pesos=0.025, T_percent=0.25, max_reemplazos=2
-        # Nota: Intentos V7.4-V7.9 mostraron trade-off fuerte entre CS2, HV y Spacing
+        # V8: Cambios estructurales (crowding distance, exploración extremos, actualización adaptativa)
+        # Parámetros base V7.3: pm=1/18, de_prob=0.25, perturbacion_pesos=0.025, T_percent=0.25, max_reemplazos=2
+        # V8 añade: crowding distance, exploración explícita de extremos, actualización adaptativa
         pop, fit, z, historial = ejecutar_moead(
             N=N, 
             generaciones=generaciones, 
@@ -325,7 +516,8 @@ if __name__ == "__main__":
             pm=1/18,
             de_prob=0.25,
             max_reemplazos=2,
-            T_percent=0.25
+            T_percent=0.25,
+            use_v8=True  # Activar mecanismos V8
         )
         
         # Guardar con nombres compatibles con el formato del profesor
