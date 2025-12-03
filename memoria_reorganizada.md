@@ -525,11 +525,11 @@ def generar_solucion_extremo(n_vars, target_f1=0.85):
 
 ---
 
-## Versión 8.2: Refinamiento Rápido (Ajustes para Competición)
+## Versión 8.2: Refinamiento Rápido (Recomendaciones de Competición)
 
 ### Objetivo
 
-Aplicar refinamientos rápidos para mejorar CS2 de 57.5% → 50-52% basándose en análisis previo.
+Aplicar refinamientos rápidos según recomendaciones de competición para mejorar CS2 de 57.5% → 50-52%.
 
 ### Cambios Implementados
 
@@ -586,7 +586,7 @@ Aplicar refinamientos rápidos para mejorar CS2 de 57.5% → 50-52% basándose e
 - ✅ **Spacing mejoró** (0.024 vs 0.032 en V8.1)
 - ❌ **CS2 empeoró** (67.5% vs 57.5% en V8.1)
 
-**Conclusión**: 
+**Recomendación**: 
 - **Para HV y spacing**: V8.2 es mejor
 - **Para CS2 (métrica crítica de competición)**: V8.1 es mejor
 
@@ -656,9 +656,9 @@ Combinar lo mejor de V8.1 (mejor CS2) y V8.2 (mejor HV) para lograr un balance �
 - CS2 peor que V8.1 (65.0% vs 57.5%) ❌
 - Spacing peor que V8.2 (0.034 vs 0.024) ❌
 
-### Decisión Final V8
+### Recomendación Final V8
 
-**Análisis para la competición**:
+**Para la competición**:
 - **V8.3 es la mejor opción** si el objetivo es "superar NSGA-II":
   - ✅ Supera NSGA-II en HV (métrica clave)
   - ✅ CS2 mejor que V8.2 (65.0% vs 67.5%)
@@ -672,7 +672,7 @@ Combinar lo mejor de V8.1 (mejor CS2) y V8.2 (mejor HV) para lograr un balance �
   - ✅ Mejor HV (6.277)
   - ❌ Pero peor CS2 (67.5%)
 
-**Decisión tomada**: **V8.3** porque supera NSGA-II en HV (objetivo principal) y tiene mejor balance general que V8.2.
+**Decisión para competición**: **V8.3** porque supera NSGA-II en HV (objetivo principal) y tiene mejor balance general que V8.2.
 
 ---
 
@@ -702,9 +702,9 @@ Combinar lo mejor de V8.1 (mejor CS2) y V8.2 (mejor HV) para lograr un balance �
 2. **Ventajas estructurales de NSGA-II**: Crowding distance explícito, selección global, mejor exploración de extremos
 3. **Reemplazo local de MOEA/D**: Limita capacidad de mantener extremos aunque no sean óptimos localmente
 
-## Versión Final Seleccionada
+## Versión Final Recomendada
 
-**V8.3** es la versión seleccionada para la competición porque:
+**V8.3** es la versión recomendada para la competición porque:
 - ✅ Supera NSGA-II en HV (objetivo principal)
 - ✅ Balance óptimo entre HV y CS2
 - ✅ Implementación completa con cambios estructurales

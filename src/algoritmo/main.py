@@ -293,7 +293,7 @@ def ejecutar_moead(N=40, T=None, generaciones=100, n_vars=30, perturbacion_pesos
             
             # Explorar extremos altos (f1 > 0.8)
             if max_f1_actual < 0.8:
-                num_extremos = max(2, N // 8)  # ~12% de la población
+                num_extremos = max(2, int(N * 0.125))  # V8.3: ~12.5% de la población (balance entre V8.1: 12% y V8.2: 15%)
                 
                 for _ in range(num_extremos):
                     # Target para explorar extremos
@@ -409,17 +409,17 @@ def ejecutar_moead(N=40, T=None, generaciones=100, n_vars=30, perturbacion_pesos
                     es_extremo_padre = f1_padre > 0.5
                     es_extremo_hijo = f1_hijo > 0.5
                     
-                    # Si el padre está en extremos, ser conservador
+                    # V8.3: Protección balanceada de extremos (margen 8-9%, intermedio entre V8.1: 7% y V8.2: 10-12%)
                     if es_extremo_padre and not es_extremo_hijo:
-                        # Solo reemplazar si el hijo es significativamente mejor (margen 7%)
-                        if g_hijo < g_padre * 0.93:
+                        # Solo reemplazar si el hijo es significativamente mejor (margen 9%, balance entre 7% y 10%)
+                        if g_hijo < g_padre * 0.91:
                             poblacion[m] = hijo[:]
                             fitness[m] = f_hijo
                             reemplazos += 1
                     elif es_extremo_hijo:
-                        # Si el hijo está en extremos, favorecerlo (proteger extremos)
-                        # Permitir hasta 7% peor en Tchebycheff para proteger extremos
-                        if g_hijo <= g_padre * 1.07:
+                        # Si el hijo está en extremos, favorecerlo (margen 9%, balance entre 7% y 12%)
+                        # Permitir hasta 9% peor en Tchebycheff para proteger extremos
+                        if g_hijo <= g_padre * 1.09:
                             poblacion[m] = hijo[:]
                             fitness[m] = f_hijo
                             reemplazos += 1
@@ -437,8 +437,8 @@ def ejecutar_moead(N=40, T=None, generaciones=100, n_vars=30, perturbacion_pesos
                         fitness[m] = f_hijo
                         reemplazos += 1
 
-        # V8: Actualización adaptativa periódica (cada 10 generaciones)
-        if use_v8 and gen > 0 and gen % 10 == 0:
+        # V8.3: Actualización adaptativa periódica (cada 8 generaciones, balance entre V8.1: 10 y V8.2: 7)
+        if use_v8 and gen > 0 and gen % 8 == 0:
             # Recalcular crowding distances
             crowding_all = crowding_distance(fitness)
             # Mantener las mejores soluciones en términos de diversidad
@@ -506,9 +506,9 @@ if __name__ == "__main__":
         seed_str = f"{seed:02d}" if seed < 10 else f"0{seed}"
         print(f"  Semilla {seed_str}...", end=" ", flush=True)
         
-        # V8: Cambios estructurales (crowding distance, exploración extremos, actualización adaptativa)
+        # V8.3: Balance entre V8.1 y V8.2 para optimizar HV y CS2 simultáneamente
         # Parámetros base V7.3: pm=1/18, de_prob=0.25, perturbacion_pesos=0.025, T_percent=0.25, max_reemplazos=2
-        # V8 añade: crowding distance, exploración explícita de extremos, actualización adaptativa
+        # V8.3 cambios: protección extremos 9% (balance 7%-12%), actualización cada 8 gen (balance 7-10), soluciones extremas 12.5% (balance 12%-15%)
         pop, fit, z, historial = ejecutar_moead(
             N=N, 
             generaciones=generaciones, 
