@@ -286,22 +286,22 @@ def ejecutar_moead(N=40, T=None, generaciones=100, n_vars=30, perturbacion_pesos
 
     for gen in range(generaciones):
 
-        # V8: Exploración explícita de extremos Y segmento inicial (cada 3 generaciones)
+        # V8.7: Exploración balanceada de extremos para mejorar spacing (cada 3 generaciones)
         if use_v8 and gen % 3 == 0:
             max_f1_actual = max(f[0] for f in fitness)
             min_f1_actual = min(f[0] for f in fitness)
             
-            # Explorar extremos altos (f1 > 0.8)
-            if max_f1_actual < 0.8:
-                num_extremos = max(2, int(N * 0.125))  # V8.3: ~12.5% de la población (balance entre V8.1: 12% y V8.2: 15%)
+            # V8.7: Explorar extremos altos (f1 > 0.8) de forma balanceada
+            if max_f1_actual < 0.8:  # Explorar si no llegamos a 0.8
+                num_extremos = max(2, int(N * 0.11))  # V8.7: 11% de la población (balance entre 10% y 12.5%)
                 
                 for _ in range(num_extremos):
-                    # Target para explorar extremos
+                    # V8.3: Target balanceado para explorar extremos (f1 > 0.8)
                     if max_f1_actual < 0.5:
-                        target_f1 = 0.6 + random.uniform(0, 0.25)  # f1 entre 0.6 y 0.85
+                        target_f1 = 0.6 + random.uniform(0, 0.25)  # f1 entre 0.6 y 0.85 (balance)
                     else:
-                        target_f1 = max(0.7, max_f1_actual) + random.uniform(0, 0.15)  # Más alto que actual
-                    target_f1 = min(0.95, target_f1)
+                        target_f1 = max(0.7, max_f1_actual) + random.uniform(0, 0.15)  # Balance
+                    target_f1 = min(0.95, target_f1)  # Asegurar que llegue cerca de 0.95
                     
                     sol_extremo = generar_solucion_extremo(n_vars, target_f1=target_f1)
                     f_extremo = zdt3(sol_extremo)
@@ -309,34 +309,12 @@ def ejecutar_moead(N=40, T=None, generaciones=100, n_vars=30, perturbacion_pesos
                     # Buscar solución con f1 bajo para reemplazar
                     candidato_idx = min(range(N), key=lambda i: fitness[i][0])
                     
-                    # Reemplazar si el extremo tiene f1 más alto (exploración)
+                    # V8.3: Reemplazar si el extremo tiene f1 más alto (exploración balanceada)
                     if f_extremo[0] > fitness[candidato_idx][0]:
-                        # Permitir hasta 20% peor en f2 para explorar extremos
-                        if f_extremo[1] < fitness[candidato_idx][1] * 1.2:
+                        # Permitir hasta 20% peor en f2 para explorar extremos (balance)
+                        if f_extremo[1] < fitness[candidato_idx][1] * 1.20:
                             poblacion[candidato_idx] = sol_extremo
                             fitness[candidato_idx] = f_extremo
-            
-            # V8.6: Explorar también segmento inicial (f1 < 0.1) para mejor cobertura
-            puntos_segmento1 = sum(1 for f in fitness if f[0] < 0.1)
-            if puntos_segmento1 < 5:  # Si hay menos de 5 puntos en segmento 1
-                num_iniciales = max(1, (5 - puntos_segmento1))  # Generar los que faltan
-                
-                for _ in range(num_iniciales):
-                    # Generar solución para segmento 1 (f1 bajo)
-                    sol_inicial = [0.0] * n_vars
-                    sol_inicial[0] = random.uniform(0.0, 0.08)  # f1 en [0, 0.08]
-                    for i in range(1, n_vars):
-                        sol_inicial[i] = random.random()
-                    
-                    f_inicial = zdt3(sol_inicial)
-                    
-                    # Reemplazar solución con f1 alto si el inicial es mejor
-                    candidato_idx = max(range(N), key=lambda i: fitness[i][0])
-                    
-                    # Reemplazar si el inicial tiene f1 más bajo (mejor para segmento 1)
-                    if f_inicial[0] < fitness[candidato_idx][0] and f_inicial[1] < fitness[candidato_idx][1] * 1.1:
-                        poblacion[candidato_idx] = sol_inicial
-                        fitness[candidato_idx] = f_inicial
 
         # Copiar población antes de actualizarla
         poblacion_original = [ind[:] for ind in poblacion]
@@ -403,30 +381,46 @@ def ejecutar_moead(N=40, T=None, generaciones=100, n_vars=30, perturbacion_pesos
                     
                     crowding_padre = crowding_distances[m]
                     
-                    # V8.5: Proteger soluciones en extremos (f1 > 0.5) de forma balanceada
+                    # V8.3: Proteger soluciones en extremos (f1 > 0.5) de forma balanceada
                     f1_padre = fitness_original[m][0]
                     f1_hijo = f_hijo[0]
                     es_extremo_padre = f1_padre > 0.5
                     es_extremo_hijo = f1_hijo > 0.5
                     
-                    # V8.3: Protección balanceada de extremos (margen 8-9%, intermedio entre V8.1: 7% y V8.2: 10-12%)
-                    if es_extremo_padre and not es_extremo_hijo:
-                        # Solo reemplazar si el hijo es significativamente mejor (margen 9%, balance entre 7% y 10%)
+                    # V8.3: Protección balanceada de extremos (margen 9%, intermedio entre V8.1: 7% y V8.2: 10-12%)
+                    es_extremo_alto_padre = f1_padre > 0.8
+                    es_extremo_alto_hijo = f1_hijo > 0.8
+                    
+                    if es_extremo_alto_padre and not es_extremo_alto_hijo:
+                        # V8.3: Protección para f1 > 0.8 (margen 9%, balance)
+                        if g_hijo < g_padre * 0.91:
+                            poblacion[m] = hijo[:]
+                            fitness[m] = f_hijo
+                            reemplazos += 1
+                    elif es_extremo_alto_hijo:
+                        # V8.3: Favorecer hijos con f1 > 0.8 (margen 9%)
+                        if g_hijo <= g_padre * 1.09:
+                            poblacion[m] = hijo[:]
+                            fitness[m] = f_hijo
+                            reemplazos += 1
+                    elif es_extremo_padre and not es_extremo_hijo:
+                        # Protección normal para f1 > 0.5 pero < 0.8 (margen 9%)
                         if g_hijo < g_padre * 0.91:
                             poblacion[m] = hijo[:]
                             fitness[m] = f_hijo
                             reemplazos += 1
                     elif es_extremo_hijo:
-                        # Si el hijo está en extremos, favorecerlo (margen 9%, balance entre 7% y 12%)
-                        # Permitir hasta 9% peor en Tchebycheff para proteger extremos
+                        # Favorecer hijos con f1 > 0.5 pero < 0.8 (margen 9%)
                         if g_hijo <= g_padre * 1.09:
                             poblacion[m] = hijo[:]
                             fitness[m] = f_hijo
                             reemplazos += 1
                     else:
-                        # Reemplazo normal para regiones no extremas
+                        # V8.6: Reemplazo normal con crowding distance más estricto para mejorar spacing
                         if g_hijo <= g_padre:
-                            if g_hijo < g_padre * 0.97 or crowding_hijo >= crowding_padre * 0.9:
+                            # Crowding distance más estricto: 0.9 → 0.93 (mejor spacing)
+                            # Esto fuerza mejor distribución uniforme
+                            if g_hijo < g_padre * 0.97 or crowding_hijo >= crowding_padre * 0.93:
                                 poblacion[m] = hijo[:]
                                 fitness[m] = f_hijo
                                 reemplazos += 1
@@ -437,8 +431,8 @@ def ejecutar_moead(N=40, T=None, generaciones=100, n_vars=30, perturbacion_pesos
                         fitness[m] = f_hijo
                         reemplazos += 1
 
-        # V8.3: Actualización adaptativa periódica (cada 8 generaciones, balance entre V8.1: 10 y V8.2: 7)
-        if use_v8 and gen > 0 and gen % 8 == 0:
+        # V8.7: Actualización adaptativa balanceada para mejorar spacing (cada 7 generaciones)
+        if use_v8 and gen > 0 and gen % 7 == 0:
             # Recalcular crowding distances
             crowding_all = crowding_distance(fitness)
             # Mantener las mejores soluciones en términos de diversidad
@@ -506,13 +500,13 @@ if __name__ == "__main__":
         seed_str = f"{seed:02d}" if seed < 10 else f"0{seed}"
         print(f"  Semilla {seed_str}...", end=" ", flush=True)
         
-        # V8.3: Balance entre V8.1 y V8.2 para optimizar HV y CS2 simultáneamente
+        # V8.7: Balance para mejorar spacing sin sacrificar HV
         # Parámetros base V7.3: pm=1/18, de_prob=0.25, perturbacion_pesos=0.025, T_percent=0.25, max_reemplazos=2
-        # V8.3 cambios: protección extremos 9% (balance 7%-12%), actualización cada 8 gen (balance 7-10), soluciones extremas 12.5% (balance 12%-15%)
+        # V8.7 cambios: exploración 11% (balance), crowding threshold 0.91 (balance), actualización cada 7 gen (balance), perturbacion_pesos 0.03 (mejor distribución)
         pop, fit, z, historial = ejecutar_moead(
             N=N, 
             generaciones=generaciones, 
-            perturbacion_pesos=0.025,
+            perturbacion_pesos=0.03,
             pm=1/18,
             de_prob=0.25,
             max_reemplazos=2,
